@@ -168,16 +168,17 @@ async def run_ingest(
             {
                 "role": "system",
                 "content": (
-                    "You are an expert knowledge analyst. Analyze the following source "
-                    "material and identify:\n"
+                    "You are an expert knowledge analyst. ALWAYS respond in Vietnamese.\n\n"
+                    "Analyze the following source material and identify:\n"
                     "1. Key entities (people, organizations, tools, frameworks)\n"
                     "2. Key concepts (ideas, theories, methods)\n"
                     "3. Relationships between them\n"
                     "4. Any contradictions or items needing verification\n\n"
-                    "Be thorough and specific. List at least 5-10 entities and 3-5 concepts."
+                    "Be thorough and specific. List at least 5-10 entities and 3-5 concepts.\n"
+                    "Output your analysis in Vietnamese."
                 ),
             },
-            {"role": "user", "content": f"Analyze this source:\n\n{source_text[:50000]}"},
+            {"role": "user", "content": f"Phân tích tài liệu nguồn này:\n\n{source_text[:50000]}"},
         ]
         analysis = await complete_chat(llm_config, analysis_messages)
 
@@ -198,13 +199,14 @@ async def run_ingest(
             {
                 "role": "system",
                 "content": (
-                    "You are a wiki page generator. You MUST generate wiki pages from the analysis.\n\n"
+                    "You are a wiki page generator. You MUST generate wiki pages from the analysis.\n"
+                    "IMPORTANT: Write ALL content in Vietnamese.\n\n"
                     "OUTPUT FORMAT — you MUST use this exact format for EVERY page:\n\n"
                     "---FILE: wiki/entities/<slug>.md---\n"
-                    "# Entity Title\n\n"
-                    "Description and details...\n\n"
-                    "## Related\n"
-                    "- [[Other Page]]\n"
+                    "# Tiêu đề Entity\n\n"
+                    "Mô tả và chi tiết...\n\n"
+                    "## Liên quan\n"
+                    "- [[Trang khác]]\n"
                     "---END FILE---\n\n"
                     "Categories for <slug> paths:\n"
                     "- wiki/entities/ — for people, orgs, tools, frameworks\n"
@@ -213,18 +215,19 @@ async def run_ingest(
                     "RULES:\n"
                     "- Generate AT LEAST 3 pages, ideally 5-10\n"
                     "- Use [[wikilinks]] to cross-reference between pages\n"
-                    "- Each page should have substantive content (100+ words)\n"
-                    "- Slugs must be lowercase-kebab-case\n\n"
+                    "- Each page should have substantive content (100+ words) IN VIETNAMESE\n"
+                    "- Slugs must be lowercase-kebab-case (can use Vietnamese without diacritics)\n"
+                    "- ALL page titles and content MUST be in Vietnamese\n\n"
                     "After all FILE blocks, optionally flag contradictions:\n\n"
                     "---REVIEW: <type> | <title>---\n"
-                    "Description\n"
+                    "Description (in Vietnamese)\n"
                     "PAGES: wiki/path1.md, wiki/path2.md\n"
                     "---END REVIEW---\n\n"
                     "Valid review types: Contradiction, Suggestion, Missing-Page\n\n"
                     "START OUTPUT WITH ---FILE: immediately. Do not add preamble."
                 ),
             },
-            {"role": "user", "content": f"Generate wiki pages from this analysis:\n\n{analysis}"},
+            {"role": "user", "content": f"Tạo các trang wiki từ phân tích này:\n\n{analysis}"},
         ]
         generation = await complete_chat(llm_config, gen_messages)
 

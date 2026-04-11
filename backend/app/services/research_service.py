@@ -75,17 +75,19 @@ async def run_research(
             {
                 "role": "system",
                 "content": (
-                    "You are a research synthesizer. Write a comprehensive, well-organized "
-                    "wiki page about the given topic based on the search results provided. "
+                    "You are a research synthesizer. ALWAYS write in Vietnamese.\n"
+                    "Write a comprehensive, well-organized wiki page about the given topic "
+                    "based on the search results provided. "
                     "Include citations as [Source](URL). Use markdown formatting with "
-                    "headings, bullet points, and tables where appropriate."
+                    "headings, bullet points, and tables where appropriate.\n"
+                    "ALL content must be in Vietnamese."
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Topic: {topic}\n\n"
-                    f"Search Results:\n\n{sources_text}"
+                    f"Chủ đề: {topic}\n\n"
+                    f"Kết quả tìm kiếm:\n\n{sources_text}"
                 ),
             },
         ]

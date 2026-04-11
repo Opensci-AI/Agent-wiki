@@ -69,14 +69,17 @@ async def stream_chat_sse(
         context_pages = await search_pages_for_rag(db, conv.project_id, last_user_msg, limit=5)
 
     # Build system prompt with context
-    system_content = "You are a helpful assistant for a knowledge wiki. Answer questions based on the wiki content provided.\n\n"
+    system_content = (
+        "You are a helpful assistant for a knowledge wiki. ALWAYS respond in Vietnamese.\n"
+        "Answer questions based on the wiki content provided.\n\n"
+    )
     if context_pages:
-        system_content += "## Relevant Wiki Pages:\n\n"
+        system_content += "## Các trang Wiki liên quan:\n\n"
         for page in context_pages:
             system_content += f"### {page.title}\n{page.content[:2000]}\n\n"
-        system_content += "---\nUse the above wiki content to answer the user's question. If the answer is not in the wiki, say so.\n"
+        system_content += "---\nSử dụng nội dung wiki ở trên để trả lời câu hỏi của người dùng bằng tiếng Việt. Nếu câu trả lời không có trong wiki, hãy nói rõ điều đó.\n"
     else:
-        system_content += "No relevant wiki pages found. Answer based on your general knowledge but mention that there's no specific wiki content about this topic.\n"
+        system_content += "Không tìm thấy trang wiki liên quan. Trả lời dựa trên kiến thức chung nhưng lưu ý rằng không có nội dung wiki cụ thể về chủ đề này.\n"
 
     chat_messages = [{"role": "system", "content": system_content}]
     chat_messages += [{"role": m.role, "content": m.content} for m in messages]
