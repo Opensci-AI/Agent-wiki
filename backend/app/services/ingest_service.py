@@ -29,6 +29,38 @@ def parse_file_blocks(text: str) -> list[tuple[str, str]]:
     return re.findall(pattern, text)
 
 
+def parse_yaml_frontmatter(content: str) -> tuple[dict, str]:
+    """Extract YAML frontmatter from content.
+
+    Returns (frontmatter_dict, content_without_frontmatter)
+    """
+    import yaml
+
+    # Check for YAML frontmatter (starts with ---)
+    if not content.strip().startswith("---"):
+        return {}, content
+
+    # Find the closing ---
+    lines = content.split("\n")
+    end_idx = -1
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            end_idx = i
+            break
+
+    if end_idx == -1:
+        return {}, content
+
+    yaml_content = "\n".join(lines[1:end_idx])
+    remaining_content = "\n".join(lines[end_idx + 1:]).strip()
+
+    try:
+        frontmatter = yaml.safe_load(yaml_content) or {}
+        return frontmatter, remaining_content
+    except yaml.YAMLError:
+        return {}, content
+
+
 def parse_review_blocks(text: str, source_path: str = "") -> list[dict]:
     """Extract review items from ---REVIEW: type | title ---END REVIEW--- blocks."""
     pattern = r"---REVIEW:\s*(\w[\w-]*)\s*\|\s*(.+?)\s*---\n([\s\S]*?)---END REVIEW---"
@@ -169,18 +201,51 @@ async def run_ingest(
                 "role": "system",
                 "content": (
                     "You are an expert knowledge analyst. ALWAYS respond in Vietnamese.\n\n"
-                    "Analyze the following source material and identify:\n"
-                    "1. Key entities (people, organizations, tools, frameworks)\n"
-                    "2. Key concepts (ideas, theories, methods)\n"
-                    "3. Relationships between them\n"
-                    "4. Any contradictions or items needing verification\n\n"
-                    "Be thorough and specific. List at least 5-10 entities and 3-5 concepts.\n"
-                    "Output your analysis in Vietnamese."
+                    "Analyze the source material and output STRICTLY as JSON (no markdown, no explanation):\n\n"
+                    "```json\n"
+                    "{\n"
+                    '  "entities": [\n'
+                    '    {"name": "Tên entity", "type": "person|org|tool|framework|other", "description": "Mô tả ngắn"}\n'
+                    "  ],\n"
+                    '  "concepts": [\n'
+                    '    {"name": "Tên concept", "description": "Mô tả ngắn"}\n'
+                    "  ],\n"
+                    '  "relationships": [\n'
+                    '    {"from": "Entity/Concept A", "to": "Entity/Concept B", "type": "uses|part_of|implements|extends|contradicts|related_to", "context": "Giải thích ngắn"}\n'
+                    "  ],\n"
+                    '  "key_facts": [\n'
+                    '    "Fact quan trọng 1",\n'
+                    '    "Fact quan trọng 2"\n'
+                    "  ]\n"
+                    "}\n"
+                    "```\n\n"
+                    "RULES:\n"
+                    "- Extract 5-15 entities, 3-8 concepts\n"
+                    "- Relationships must use exact names from entities/concepts lists\n"
+                    "- Relationship types: uses, part_of, implements, extends, contradicts, related_to\n"
+                    "- All text in Vietnamese\n"
+                    "- Output ONLY valid JSON, no other text"
                 ),
             },
             {"role": "user", "content": f"Phân tích tài liệu nguồn này:\n\n{source_text[:50000]}"},
         ]
-        analysis = await complete_chat(llm_config, analysis_messages)
+        analysis_raw = await complete_chat(llm_config, analysis_messages)
+
+        # Parse structured analysis
+        import json
+        try:
+            # Extract JSON from response (handle markdown code blocks)
+            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', analysis_raw)
+            if json_match:
+                analysis_json = json.loads(json_match.group(1))
+            else:
+                # Try parsing directly
+                analysis_json = json.loads(analysis_raw.strip())
+        except json.JSONDecodeError:
+            # Fallback: use raw text
+            analysis_json = {"raw_analysis": analysis_raw}
+
+        analysis = analysis_raw  # Keep for backward compat
 
         await update_task_status(
             task_id, "running", progress=40,
@@ -195,39 +260,54 @@ async def run_ingest(
             step="llm_generation"
         )
 
+        # Build generation prompt with structured data
+        gen_system = (
+            "You are a wiki page generator. Create wiki pages from the structured analysis.\n"
+            "IMPORTANT: Write ALL content in Vietnamese.\n\n"
+            "OUTPUT FORMAT for EVERY page:\n\n"
+            "---FILE: wiki/<category>/<slug>.md---\n"
+            "---\n"
+            "title: Tiêu đề trang\n"
+            "type: entity|concept|overview\n"
+            "relationships:\n"
+            "  - target: Tên trang liên quan\n"
+            "    type: uses|part_of|implements|extends|contradicts|related_to\n"
+            "---\n\n"
+            "# Tiêu đề trang\n\n"
+            "Nội dung chi tiết (100+ từ)...\n\n"
+            "## Mối quan hệ\n"
+            "- **Sử dụng**: [[Trang A]] - giải thích\n"
+            "- **Liên quan**: [[Trang B]] - giải thích\n"
+            "---END FILE---\n\n"
+            "Categories:\n"
+            "- wiki/entities/ — people, orgs, tools, frameworks\n"
+            "- wiki/concepts/ — ideas, theories, methods\n"
+            "- wiki/overview/ — summary pages\n\n"
+            "RULES:\n"
+            "- Generate ONE page per entity and concept from analysis\n"
+            "- Slugs: lowercase-kebab-case (Vietnamese without diacritics)\n"
+            "- Use [[wikilinks]] with EXACT titles from your generated pages\n"
+            "- Relationship types in frontmatter: uses, part_of, implements, extends, contradicts, related_to\n"
+            "- Each page MUST have YAML frontmatter with relationships\n"
+            "- Content in Vietnamese, substantive (100+ words)\n\n"
+            "START OUTPUT WITH ---FILE: immediately."
+        )
+
+        # Include structured analysis if available
+        if isinstance(analysis_json, dict) and "entities" in analysis_json:
+            gen_user = (
+                f"Tạo wiki pages từ dữ liệu có cấu trúc sau:\n\n"
+                f"ENTITIES:\n{json.dumps(analysis_json.get('entities', []), ensure_ascii=False, indent=2)}\n\n"
+                f"CONCEPTS:\n{json.dumps(analysis_json.get('concepts', []), ensure_ascii=False, indent=2)}\n\n"
+                f"RELATIONSHIPS:\n{json.dumps(analysis_json.get('relationships', []), ensure_ascii=False, indent=2)}\n\n"
+                f"KEY FACTS:\n{json.dumps(analysis_json.get('key_facts', []), ensure_ascii=False, indent=2)}"
+            )
+        else:
+            gen_user = f"Tạo các trang wiki từ phân tích này:\n\n{analysis}"
+
         gen_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a wiki page generator. You MUST generate wiki pages from the analysis.\n"
-                    "IMPORTANT: Write ALL content in Vietnamese.\n\n"
-                    "OUTPUT FORMAT — you MUST use this exact format for EVERY page:\n\n"
-                    "---FILE: wiki/entities/<slug>.md---\n"
-                    "# Tiêu đề Entity\n\n"
-                    "Mô tả và chi tiết...\n\n"
-                    "## Liên quan\n"
-                    "- [[Trang khác]]\n"
-                    "---END FILE---\n\n"
-                    "Categories for <slug> paths:\n"
-                    "- wiki/entities/ — for people, orgs, tools, frameworks\n"
-                    "- wiki/concepts/ — for ideas, theories, methods\n"
-                    "- wiki/overview/ — for summary/index pages\n\n"
-                    "RULES:\n"
-                    "- Generate AT LEAST 3 pages, ideally 5-10\n"
-                    "- Use [[wikilinks]] to cross-reference between pages\n"
-                    "- Each page should have substantive content (100+ words) IN VIETNAMESE\n"
-                    "- Slugs must be lowercase-kebab-case (can use Vietnamese without diacritics)\n"
-                    "- ALL page titles and content MUST be in Vietnamese\n\n"
-                    "After all FILE blocks, optionally flag contradictions:\n\n"
-                    "---REVIEW: <type> | <title>---\n"
-                    "Description (in Vietnamese)\n"
-                    "PAGES: wiki/path1.md, wiki/path2.md\n"
-                    "---END REVIEW---\n\n"
-                    "Valid review types: Contradiction, Suggestion, Missing-Page\n\n"
-                    "START OUTPUT WITH ---FILE: immediately. Do not add preamble."
-                ),
-            },
-            {"role": "user", "content": f"Tạo các trang wiki từ phân tích này:\n\n{analysis}"},
+            {"role": "system", "content": gen_system},
+            {"role": "user", "content": gen_user},
         ]
         generation = await complete_chat(llm_config, gen_messages)
 
@@ -251,19 +331,34 @@ async def run_ingest(
         async with async_session() as db:
             for idx, (path, content) in enumerate(file_blocks):
                 path = path.strip()
-                # Determine type from path
-                if "/entities/" in path:
-                    page_type = "entity"
-                elif "/concepts/" in path:
-                    page_type = "concept"
-                elif "/queries/" in path:
-                    page_type = "query"
-                else:
-                    page_type = "general"
 
-                # Extract title from first heading
-                title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
-                title = title_match.group(1).strip() if title_match else path.split("/")[-1].replace(".md", "")
+                # Parse YAML frontmatter if present
+                yaml_frontmatter, content_body = parse_yaml_frontmatter(content)
+
+                # Determine type from frontmatter or path
+                page_type = yaml_frontmatter.get("type")
+                if not page_type:
+                    if "/entities/" in path:
+                        page_type = "entity"
+                    elif "/concepts/" in path:
+                        page_type = "concept"
+                    elif "/queries/" in path:
+                        page_type = "query"
+                    else:
+                        page_type = "general"
+
+                # Extract title from frontmatter or first heading
+                title = yaml_frontmatter.get("title")
+                if not title:
+                    title_match = re.search(r"^#\s+(.+)$", content_body, re.MULTILINE)
+                    title = title_match.group(1).strip() if title_match else path.split("/")[-1].replace(".md", "")
+
+                # Build frontmatter with relationships
+                relationships = yaml_frontmatter.get("relationships", [])
+                final_frontmatter = {
+                    "sources": [source.filename],
+                    "relationships": relationships,
+                }
 
                 # Upsert page
                 existing = await db.execute(
@@ -273,13 +368,15 @@ async def run_ingest(
                 )
                 page = existing.scalar_one_or_none()
                 if page:
-                    page.content = content.strip()
+                    page.content = content_body.strip() if content_body else content.strip()
                     page.title = title
+                    page.type = page_type
+                    # Merge frontmatter
+                    existing_sources = page.frontmatter.get("sources", [])
                     page.frontmatter = {
                         **page.frontmatter,
-                        "sources": list(
-                            set(page.frontmatter.get("sources", []) + [source.filename])
-                        ),
+                        **final_frontmatter,
+                        "sources": list(set(existing_sources + [source.filename])),
                     }
                 else:
                     page = Page(
@@ -288,8 +385,8 @@ async def run_ingest(
                         path=path,
                         type=page_type,
                         title=title,
-                        content=content.strip(),
-                        frontmatter={"sources": [source.filename]},
+                        content=content_body.strip() if content_body else content.strip(),
+                        frontmatter=final_frontmatter,
                     )
                     db.add(page)
 

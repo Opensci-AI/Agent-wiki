@@ -69,9 +69,10 @@ async def find_related_pages(db: AsyncSession, project_id: uuid.UUID, source_nam
 async def search_pages_for_rag(
     db: AsyncSession, project_id: uuid.UUID, query: str, limit: int = 5
 ) -> list[Page]:
-    """Simple keyword search for RAG context retrieval.
+    """Enhanced keyword search for RAG context retrieval.
 
     Searches page titles and content for query keywords.
+    Also includes related pages based on relationship graph.
     Returns top N pages sorted by relevance score.
     """
     if not query.strip():
@@ -80,6 +81,11 @@ async def search_pages_for_rag(
     result = await db.execute(select(Page).where(Page.project_id == project_id))
     pages = list(result.scalars().all())
 
+    # Build title lookup for relationship expansion
+    title_to_page: dict[str, Page] = {}
+    for p in pages:
+        title_to_page[p.title.lower()] = p
+
     # Simple keyword matching with scoring
     query_lower = query.lower()
     keywords = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
@@ -87,7 +93,8 @@ async def search_pages_for_rag(
     if not keywords:
         return []
 
-    scored: list[tuple[Page, int]] = []
+    scored: dict[str, tuple[Page, int]] = {}  # page_id -> (page, score)
+
     for page in pages:
         score = 0
         title_lower = (page.title or "").lower()
@@ -101,9 +108,25 @@ async def search_pages_for_rag(
             score += content_lower.count(kw)
 
         if score > 0:
-            scored.append((page, score))
+            scored[str(page.id)] = (page, score)
+
+            # Add related pages with reduced score
+            relationships = page.frontmatter.get("relationships", [])
+            for rel in relationships:
+                target_title = rel.get("target", "").lower()
+                rel_type = rel.get("type", "related_to")
+                target_page = title_to_page.get(target_title)
+                if target_page:
+                    target_id = str(target_page.id)
+                    # Related pages get bonus based on relationship type
+                    rel_score = 3 if rel_type in ("uses", "part_of", "implements") else 2
+                    if target_id in scored:
+                        existing_page, existing_score = scored[target_id]
+                        scored[target_id] = (existing_page, existing_score + rel_score)
+                    else:
+                        scored[target_id] = (target_page, rel_score)
 
     # Sort by score descending
-    scored.sort(key=lambda x: x[1], reverse=True)
+    sorted_pages = sorted(scored.values(), key=lambda x: x[1], reverse=True)
 
-    return [p for p, _ in scored[:limit]]
+    return [p for p, _ in sorted_pages[:limit]]
