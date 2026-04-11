@@ -1,14 +1,25 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, ChevronRight, ChevronDown, Layout, Globe, Plus,
+  FileText, Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, ChevronRight, ChevronDown, Layout, Globe, Plus, Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { sources as sourcesApi } from "@/api/sources"
+import { pages as pagesApi, type WikiPage } from "@/api/pages"
 import { CreatePageDialog } from "@/components/editor/create-page-dialog"
-import type { WikiPage } from "@/api/pages"
 import type { Source } from "@/api/sources"
+import { toast } from "sonner"
 
 const TYPE_CONFIG: Record<string, { icon: typeof FileText; label: string; color: string; order: number }> = {
   overview:    { icon: Layout,      label: "Overview",     color: "text-primary", order: 0 },
@@ -27,8 +38,27 @@ export function KnowledgeTree() {
   const selectedPageId = useWikiStore((s) => s.selectedPageId)
   const setSelectedPageId = useWikiStore((s) => s.setSelectedPageId)
   const wikiPages = useWikiStore((s) => s.pages)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(["overview", "entity", "concept", "source"]))
   const [showCreatePage, setShowCreatePage] = useState(false)
+  const [pageToDelete, setPageToDelete] = useState<WikiPage | null>(null)
+
+  const handleDeletePage = async () => {
+    if (!project?.id || !pageToDelete) return
+    try {
+      await pagesApi.delete(project.id, pageToDelete.id)
+      if (selectedPageId === pageToDelete.id) {
+        setSelectedPageId(null)
+      }
+      bumpDataVersion()
+      toast.success(`Đã xoá "${pageToDelete.title}"`)
+    } catch (err) {
+      console.error("Failed to delete page:", err)
+      toast.error("Không thể xoá trang")
+    } finally {
+      setPageToDelete(null)
+    }
+  }
 
   if (!project) {
     return (
@@ -113,19 +143,35 @@ export function KnowledgeTree() {
                   {items.map((page) => {
                     const isSelected = selectedPageId === page.id
                     return (
-                      <button
+                      <div
                         key={page.id}
-                        onClick={() => setSelectedPageId(page.id)}
-                        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm ${
+                        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm group ${
                           isSelected
                             ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
                         }`}
-                        title={page.path}
                       >
-                        {page.frontmatter?.origin === "web-clip" && <Globe className="h-3 w-3 shrink-0 text-primary" />}
-                        <span className="truncate">{page.title}</span>
-                      </button>
+                        <button
+                          onClick={() => setSelectedPageId(page.id)}
+                          className="flex-1 flex items-center gap-1.5 text-left min-w-0"
+                          title={page.path}
+                        >
+                          {page.frontmatter?.origin === "web-clip" && <Globe className="h-3 w-3 shrink-0 text-primary" />}
+                          <span className="truncate">{page.title}</span>
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                          title="Xoá trang"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setPageToDelete(page)
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     )
                   })}
                 </div>
@@ -139,6 +185,26 @@ export function KnowledgeTree() {
       </div>
 
       <CreatePageDialog open={showCreatePage} onOpenChange={setShowCreatePage} />
+
+      <AlertDialog open={!!pageToDelete} onOpenChange={(open) => !open && setPageToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xoá trang wiki?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Thao tác này sẽ xoá vĩnh viễn trang "{pageToDelete?.title}" và không thể hoàn tác.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Huỷ</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePage}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Xoá
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ScrollArea>
   )
 }

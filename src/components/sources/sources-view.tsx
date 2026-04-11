@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Plus, FileText, RefreshCw, BookOpen, Trash2, Globe, Loader2, AlertCircle, CheckCircle2, Clock, Sparkles } from "lucide-react"
+import { Plus, FileText, RefreshCw, BookOpen, Trash2, Globe, Loader2, AlertCircle, CheckCircle2, Clock, Sparkles, Eye, ChevronDown, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -15,6 +15,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useWikiStore, type ActiveTask } from "@/stores/wiki-store"
 import { sources as sourcesApi, type Source } from "@/api/sources"
+import { pages as pagesApi, type WikiPage } from "@/api/pages"
 import { ingest, tasks, type TaskStatus } from "@/api/ingest"
 import { useTranslation } from "react-i18next"
 import { WebClipDialog } from "./web-clip-dialog"
@@ -33,8 +34,12 @@ export function SourcesView() {
   const [importing, setImporting] = useState(false)
   const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null)
   const [showWebClip, setShowWebClip] = useState(false)
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set())
+  const [sourcePages, setSourcePages] = useState<Map<string, WikiPage[]>>(new Map())
+  const [pageToDelete, setPageToDelete] = useState<WikiPage | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pollingRef = useRef<Set<string>>(new Set()) // Track which tasks are being polled
+  const setSelectedPageId = useWikiStore((s) => s.setSelectedPageId)
 
   const loadSources = useCallback(async () => {
     if (!project?.id) return
@@ -45,6 +50,52 @@ export function SourcesView() {
       setSourcesList([])
     }
   }, [project])
+
+  // Load pages related to a source
+  const loadSourcePages = useCallback(async (sourceFilename: string) => {
+    if (!project?.id) return
+    try {
+      const relatedPages = await pagesApi.related(project.id, sourceFilename)
+      setSourcePages(prev => new Map(prev).set(sourceFilename, relatedPages))
+    } catch (err) {
+      console.error("Failed to load related pages:", err)
+    }
+  }, [project])
+
+  // Toggle expand/collapse for a source
+  const toggleSourceExpand = useCallback((source: Source) => {
+    const filename = source.original_name
+    setExpandedSources(prev => {
+      const next = new Set(prev)
+      if (next.has(filename)) {
+        next.delete(filename)
+      } else {
+        next.add(filename)
+        // Load pages when expanding
+        if (!sourcePages.has(filename)) {
+          loadSourcePages(filename)
+        }
+      }
+      return next
+    })
+  }, [sourcePages, loadSourcePages])
+
+  // Delete a wiki page
+  const handleDeletePage = async () => {
+    if (!project?.id || !pageToDelete) return
+    try {
+      await pagesApi.delete(project.id, pageToDelete.id)
+      // Refresh pages for all expanded sources
+      expandedSources.forEach(filename => loadSourcePages(filename))
+      bumpDataVersion()
+      toast.success(`Đã xoá "${pageToDelete.title}"`)
+    } catch (err) {
+      console.error("Failed to delete page:", err)
+      toast.error(`Không thể xoá: ${err}`)
+    } finally {
+      setPageToDelete(null)
+    }
+  }
 
   useEffect(() => {
     loadSources()
@@ -225,9 +276,10 @@ export function SourcesView() {
         progress: task.progress_pct,
       })
       startPolling(source.id, task.id, "ingest", () => {
-        toast.success(`Wiki pages generated from ${source.original_name}`)
-        setChatExpanded(true)
-        setActiveView("wiki")
+        toast.success(`Đã tạo wiki pages từ ${source.original_name}`)
+        // Auto-expand to show generated pages
+        setExpandedSources(prev => new Set(prev).add(source.original_name))
+        loadSourcePages(source.original_name)
       })
     } catch (err: any) {
       console.error("Failed to start ingest:", err)
@@ -282,14 +334,28 @@ export function SourcesView() {
               const isProcessing = !!activeTask
               const needsExtraction = source.status === "uploaded"
               const isReady = source.status === "ready"
+              const isIngested = source.status === "ingested"
+              const isExpanded = expandedSources.has(source.original_name)
+              const relatedPages = sourcePages.get(source.original_name) || []
 
               return (
                 <div
                   key={source.id}
-                  className="rounded-md border bg-card p-2 text-sm transition-colors hover:bg-accent/50"
+                  className="rounded-md border bg-card text-sm"
                 >
                   {/* Header row */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 p-2 hover:bg-accent/50 transition-colors">
+                    {/* Expand/collapse toggle */}
+                    <button
+                      onClick={() => toggleSourceExpand(source)}
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </button>
                     <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="flex-1 truncate font-medium">{source.original_name}</span>
 
@@ -297,17 +363,22 @@ export function SourcesView() {
                     {isProcessing ? (
                       <span className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        Processing
+                        Đang xử lý
                       </span>
                     ) : needsExtraction ? (
                       <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600">
                         <Clock className="h-3 w-3" />
-                        Needs OCR
+                        Cần OCR
+                      </span>
+                    ) : isIngested ? (
+                      <span className="flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-600">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Đã tạo Wiki
                       </span>
                     ) : isReady ? (
                       <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600">
                         <CheckCircle2 className="h-3 w-3" />
-                        Ready
+                        Sẵn sàng
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] font-medium text-gray-600">
@@ -323,22 +394,22 @@ export function SourcesView() {
                             variant="outline"
                             size="sm"
                             className="h-6 px-2 text-xs"
-                            title="Extract text using OCR"
+                            title="Trích xuất văn bản bằng OCR"
                             onClick={() => handleExtract(source)}
                           >
                             <Sparkles className="mr-1 h-3 w-3" />
-                            Extract
+                            Trích xuất
                           </Button>
-                        ) : isReady ? (
+                        ) : isReady || isIngested ? (
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-6 px-2 text-xs"
-                            title="Generate wiki pages from this source"
+                            title="Tạo các trang wiki từ nguồn này"
                             onClick={() => handleIngest(source)}
                           >
                             <BookOpen className="mr-1 h-3 w-3" />
-                            Generate Wiki
+                            {isIngested ? "Tạo lại" : "Tạo Wiki"}
                           </Button>
                         ) : null}
                         <Button
@@ -356,14 +427,64 @@ export function SourcesView() {
 
                   {/* Progress bar when processing */}
                   {isProcessing && activeTask && (
-                    <div className="mt-2 space-y-1">
+                    <div className="px-2 pb-2 space-y-1">
                       <Progress value={activeTask.progress} className="h-1.5" />
                       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                         <span className="truncate">
-                          {activeTask.statusDetail || `${activeTask.type === "extract" ? "Extracting" : "Generating"}...`}
+                          {activeTask.statusDetail || `${activeTask.type === "extract" ? "Đang trích xuất" : "Đang tạo wiki"}...`}
                         </span>
                         <span className="shrink-0 ml-2">{activeTask.progress}%</span>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Generated pages list */}
+                  {isExpanded && (
+                    <div className="border-t bg-muted/30 px-2 py-1.5">
+                      {relatedPages.length === 0 ? (
+                        <div className="text-xs text-muted-foreground py-2 text-center">
+                          {isIngested ? "Đang tải..." : "Chưa có trang wiki nào được tạo"}
+                        </div>
+                      ) : (
+                        <div className="space-y-0.5">
+                          <div className="text-[10px] font-medium text-muted-foreground mb-1">
+                            {relatedPages.length} trang đã tạo:
+                          </div>
+                          {relatedPages.map((page) => (
+                            <div
+                              key={page.id}
+                              className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-accent/50 group"
+                            >
+                              <BookOpen className="h-3 w-3 shrink-0 text-primary/70" />
+                              <button
+                                className="flex-1 text-left text-xs truncate hover:text-primary"
+                                onClick={() => setSelectedPageId(page.id)}
+                                title={`Xem: ${page.title}`}
+                              >
+                                {page.title}
+                              </button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary"
+                                title="Xem nội dung"
+                                onClick={() => setSelectedPageId(page.id)}
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                                title="Xoá trang"
+                                onClick={() => setPageToDelete(page)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -386,22 +507,43 @@ export function SourcesView() {
         />
       )}
 
+      {/* Delete source dialog */}
       <AlertDialog open={!!sourceToDelete} onOpenChange={(open) => !open && setSourceToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("sources.deleteTitle") || "Delete source?"}</AlertDialogTitle>
+            <AlertDialogTitle>Xoá nguồn?</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("sources.deleteConfirm", { name: sourceToDelete?.original_name }) ||
-                `This will permanently delete "${sourceToDelete?.original_name}" and cannot be undone.`}
+              Thao tác này sẽ xoá vĩnh viễn "{sourceToDelete?.original_name}" và không thể hoàn tác.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel") || "Cancel"}</AlertDialogCancel>
+            <AlertDialogCancel>Huỷ</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {t("common.delete") || "Delete"}
+              Xoá
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete page dialog */}
+      <AlertDialog open={!!pageToDelete} onOpenChange={(open) => !open && setPageToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xoá trang wiki?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Thao tác này sẽ xoá vĩnh viễn trang "{pageToDelete?.title}" và không thể hoàn tác.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Huỷ</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePage}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Xoá
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
