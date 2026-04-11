@@ -1,0 +1,16 @@
+export { api, setToken, getToken, ApiError } from "./client";
+export { register, login, getMe, logout } from "./auth";
+export type { User } from "./auth";
+export { projects } from "./projects";
+export type { Project } from "./projects";
+export { pages, lint, graph } from "./pages";
+export type { WikiPage, LintIssue, GraphData, GraphInsights } from "./pages";
+export { sources } from "./sources";
+export type { Source } from "./sources";
+export { chat, streamChat } from "./chat";
+export type { Conversation, Message } from "./chat";
+export { config } from "./config";
+export type { AppConfig } from "./config";
+export { ingest } from "./ingest";
+export { research } from "./research";
+export type { TaskStatus } from "./ingest";

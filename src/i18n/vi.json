@@ -1,0 +1,100 @@
+{
+  "app": {
+    "title": "LLM Wiki",
+    "subtitle": "Xây dựng và quản lý cơ sở tri thức cá nhân với AI"
+  },
+  "nav": {
+    "wiki": "Wiki",
+    "sources": "Nguồn",
+    "search": "Tìm kiếm",
+    "graph": "Đồ thị",
+    "lint": "Kiểm tra",
+    "review": "Xem xét",
+    "settings": "Cài đặt",
+    "switchProject": "Đổi dự án"
+  },
+  "welcome": {
+    "newProject": "Tạo dự án mới",
+    "openProject": "Mở dự án",
+    "recentProjects": "Dự án gần đây"
+  },
+  "project": {
+    "createTitle": "Tạo dự án Wiki mới",
+    "name": "Tên dự án",
+    "namePlaceholder": "du-an-nghien-cuu",
+    "template": "Mẫu",
+    "cancel": "Hủy",
+    "create": "Tạo",
+    "creating": "Đang tạo..."
+  },
+  "sources": {
+    "title": "Nguồn tài liệu",
+    "import": "Nhập",
+    "importing": "Đang nhập...",
+    "noSources": "Chưa có nguồn nào",
+    "importHint": "Nhập tài liệu để bắt đầu xây dựng wiki",
+    "importFiles": "Nhập tập tin",
+    "ingest": "Xử lý",
+    "delete": "Xóa nguồn",
+    "deleteTitle": "Xóa nguồn?",
+    "deleteConfirm": "Xóa \"{{name}}\"? Hành động này không thể hoàn tác.",
+    "deleted": "Đã xóa \"{{name}}\"",
+    "sourceCount": "{{count}} nguồn",
+    "sourceCount_plural": "{{count}} nguồn"
+  },
+  "chat": {
+    "placeholder": "Hỏi về wiki của bạn...",
+    "ingestPlaceholder": "Thảo luận về nguồn hoặc đặt câu hỏi...",
+    "saveToWiki": "Lưu vào Wiki",
+    "saving": "Đang lưu...",
+    "saved": "Đã lưu!",
+    "writeToWiki": "Ghi vào Wiki",
+    "emptyHint": "Đặt câu hỏi hoặc bắt đầu xử lý nguồn.",
+    "sources": "Nguồn"
+  },
+  "search": {
+    "title": "Tìm kiếm",
+    "placeholder": "Tìm trang wiki...",
+    "noResults": "Không tìm thấy kết quả cho",
+    "startSearching": "Nhập để tìm kiếm trang wiki"
+  },
+  "lint": {
+    "title": "Kiểm tra",
+    "runLint": "Chạy kiểm tra",
+    "running": "Đang chạy...",
+    "allClear": "Tất cả ổn — không có lỗi nào"
+  },
+  "review": {
+    "title": "Xem xét",
+    "clearResolved": "Xóa đã giải quyết",
+    "allClear": "Tất cả ổn — không có gì cần xem xét"
+  },
+  "settings": {
+    "title": "Cài đặt",
+    "save": "Lưu cài đặt",
+    "saving": "Đang lưu...",
+    "saved": "Đã lưu!",
+    "saveFailed": "Lưu thất bại",
+    "language": "Ngôn ngữ",
+    "languageHint": "Ngôn ngữ giao diện (nội dung wiki theo ngôn ngữ tài liệu gốc)"
+  },
+  "common": {
+    "cancel": "Hủy",
+    "delete": "Xóa",
+    "confirm": "Xác nhận",
+    "save": "Lưu",
+    "close": "Đóng"
+  },
+  "preview": {
+    "selectFile": "Chọn một tập tin để xem trước",
+    "notAvailable": "Không hỗ trợ xem trước loại tập tin này"
+  },
+  "activity": {
+    "processing": "Đang xử lý: {{title}}",
+    "done": "Hoàn thành: {{title}}",
+    "clearCompleted": "Xóa đã hoàn thành"
+  },
+  "fileTree": {
+    "noProject": "Chưa mở dự án"
+  }
+}
