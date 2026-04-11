@@ -51,18 +51,45 @@ async def delete_page(db: AsyncSession, page: Page) -> None:
     await db.delete(page)
     await db.commit()
 
+def _normalize_for_match(s: str) -> str:
+    """Normalize string for fuzzy matching: lowercase, remove special chars."""
+    import re
+    # Remove hash suffix (8 hex chars before extension)
+    s = re.sub(r'-[a-f0-9]{8}\.', '.', s)
+    return re.sub(r'[^a-z0-9]', '', s.lower())
+
+
 async def find_related_pages(db: AsyncSession, project_id: uuid.UUID, source_name: str) -> list[Page]:
+    """Find pages created from a specific source file.
+
+    Uses fuzzy matching to handle differences between original_name and filename.
+    Also matches pages from the same file uploaded multiple times (different hashes).
+    """
     all_pages = await db.execute(select(Page).where(Page.project_id == project_id))
     pages = all_pages.scalars().all()
     related = []
-    source_lower = source_name.lower()
+
+    # Normalize source name for matching (remove special chars, lowercase)
+    source_normalized = _normalize_for_match(source_name)
+    # Also try matching just the base name without extension (first 30 chars should be enough)
+    source_base = source_normalized[:30] if len(source_normalized) > 30 else source_normalized
+
     for p in pages:
         sources = p.frontmatter.get("sources", [])
         if isinstance(sources, list):
-            if any(source_lower in str(s).lower() for s in sources):
+            for s in sources:
+                s_normalized = _normalize_for_match(str(s))
+                s_base = s_normalized[:30] if len(s_normalized) > 30 else s_normalized
+                # Match if base names are similar (handles different hashes)
+                if source_base == s_base or source_base in s_normalized or s_base in source_normalized:
+                    related.append(p)
+                    break
+        elif isinstance(sources, str):
+            s_normalized = _normalize_for_match(sources)
+            s_base = s_normalized[:30] if len(s_normalized) > 30 else s_normalized
+            if source_base == s_base or source_base in s_normalized or s_base in source_normalized:
                 related.append(p)
-        elif isinstance(sources, str) and source_lower in sources.lower():
-            related.append(p)
+
     return related
 
 

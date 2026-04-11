@@ -406,6 +406,14 @@ async def run_ingest(
                 step="commit_pages"
             )
 
+            # Update source status to ingested
+            source_result = await db.execute(
+                select(Source).where(Source.id == source_id)
+            )
+            source_to_update = source_result.scalar_one_or_none()
+            if source_to_update:
+                source_to_update.status = "ingested"
+
             await db.commit()
 
             # Invalidate index cache
